@@ -16,7 +16,7 @@ class Solutions {
                     if (nums[i] == (target - firstnum)){
                         secondnum = nums[i];
                         secondpos = i;
-                        System.out.println(firstpos+"ssec"+secondpos);
+                        System.out.println(firstpos+"ssecnow"+secondpos);
                         return;
                     }
                 }
