@@ -1,0 +1,42 @@
+Application-Level Backup (Recommended for VictoriaLogs)
+Since you're using VictoriaLogs specifically, consider:
+
+VictoriaLogs native backup: 
+
+Use VictoriaLogs' built-in backup functionality
+Export data to object storage (S3/GCS/Azure Blob)
+More portable across clouds
+
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: victorialogs-backup
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: your-backup-image
+            volumeMounts:
+            - name: victorialogs-data
+              mountPath: /data
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Rsync or tar to cloud storage
+              tar czf /tmp/backup-$(date +%Y%m%d).tar.gz /data
+              aws s3 cp /tmp/backup-$(date +%Y%m%d).tar.gz s3://your-backup-bucket/
+          volumes:
+          - name: victorialogs-data
+            persistentVolumeClaim:
+              claimName: victorialogs-pvc
+
+
+
+
+Init container approach:
