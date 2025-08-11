@@ -1,5 +1,76 @@
 #!/bin/bash
 
+# 1. Create S3 bucket for Velero backups
+BUCKET_NAME="your-velero-backup-bucket-$(date +%s)"
+AWS_REGION="us-west-2"  # Change to your region
+
+aws s3 mb s3://$BUCKET_NAME --region $AWS_REGION
+
+# 2. Create IAM policy for Velero
+cat > velero-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeVolumes",
+                "ec2:DescribeSnapshots",
+                "ec2:CreateTags",
+                "ec2:CreateVolume",
+                "ec2:CreateSnapshot",
+                "ec2:DeleteSnapshot"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:DeleteObject",
+                "s3:PutObject",
+                "s3:AbortMultipartUpload",
+                "s3:ListMultipartUploadParts"
+            ],
+            "Resource": [
+                "arn:aws:s3:::$BUCKET_NAME/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::$BUCKET_NAME"
+            ]
+        }
+    ]
+}
+EOF
+
+# 3. Create IAM policy
+aws iam create-policy \
+    --policy-name VeleroAccessPolicy \
+    --policy-document file://velero-policy.json
+
+# 4. Create IAM user for Velero
+aws iam create-user --user-name velero
+
+# 5. Attach policy to user
+aws iam attach-user-policy \
+    --policy-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):policy/VeleroAccessPolicy \
+    --user-name velero
+
+# 6. Create access keys
+aws iam create-access-key --user-name velero
+
+echo "Save the AccessKeyId and SecretAccessKey from above output!"
+echo "Bucket created: $BUCKET_NAME"
+
+_____________________HELM REpO COMMAND FOR INSTALL
+#!/bin/bash
+
 # Step 1: Add Helm repo
 helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
 helm repo update
