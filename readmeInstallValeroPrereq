@@ -1,3 +1,12 @@
+What Velero Does
+Velero is a Kubernetes backup and disaster recovery tool that:
+
+Backs up Kubernetes resources (deployments, services, configmaps, etc.)
+Creates volume snapshots of your PVCs
+Stores backups in object storage (S3, GCS, Azure Blob)
+Enables cluster migration and disaster recovery
+Provides scheduled backups and on-demand backups
+
 #!/bin/bash
 
 # 1. Create S3 bucket for Velero backups
