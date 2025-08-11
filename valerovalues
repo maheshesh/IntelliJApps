@@ -1,0 +1,76 @@
+# velero-values.yaml
+image:
+  repository: velero/velero
+  tag: v1.12.1
+
+# AWS credentials (create secret separately)
+credentials:
+  useSecret: true
+  name: cloud-credentials
+
+# Backup storage location
+configuration:
+  backupStorageLocation:
+  - name: aws
+    provider: aws
+    bucket: your-velero-backup-bucket  # Replace with your bucket name
+    config:
+      region: us-west-2  # Replace with your AWS region
+      
+  # Volume snapshot location  
+  volumeSnapshotLocation:
+  - name: aws
+    provider: aws
+    config:
+      region: us-west-2  # Replace with your AWS region
+
+# AWS plugin
+initContainers:
+- name: velero-plugin-for-aws
+  image: velero/velero-plugin-for-aws:v1.8.0
+  imagePullPolicy: IfNotPresent
+  volumeMounts:
+  - mountPath: /target
+    name: plugins
+
+# Enable CSI snapshots
+features: EnableCSI
+
+# Resource requests/limits
+resources:
+  requests:
+    cpu: 500m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# Node selector (optional - for specific node groups)
+nodeSelector: {}
+
+# Tolerations (optional)
+tolerations: []
+
+# Service account
+serviceAccount:
+  server:
+    create: true
+    name: velero
+    annotations: {}
+
+# Metrics
+metrics:
+  enabled: true
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+
+# Default backup TTL (30 days)
+configuration:
+  defaultBackupTTL: 720h
+
+# Backup sync period
+backupSyncPeriod: 60m
+
+# Restore only mode (set to true if you want restore-only)
+configuration:
+  restoreOnlyMode: false
