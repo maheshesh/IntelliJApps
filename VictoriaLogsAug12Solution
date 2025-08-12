@@ -1,0 +1,89 @@
+As per this thread: https://github.com/VictoriaMetrics/VictoriaLogs/issues/438 VictoriaLogs doesn't support snapshot functionality yet. So, in order to make reliable backups, you need to stop VictoriaLogs, copy its data directory and then start VictoriaLogs. VictoriaLogs stores data in per-day partitions, which are put into separate sub-directories under the -storageDataPath directory. So it is easy backing up data for separate days by just copying the corresponding directories while VictoriaLogs isn't running.
+ChatGPT said:
+Right — I saw that GitHub thread — and that’s the critical difference here:
+Velero/EBS snapshots won’t help you if VictoriaLogs is running, because you’d get inconsistent backups unless you quiesce it first.
+So, a reliable Helm/K8s backup plan needs to:
+
+Stop the VictoriaLogs pods (or at least put them in a paused state).
+Copy the data directories from the PVC to your S3 bucket (vlogsbcpbucket).
+Start VictoriaLogs again.
+Since VictoriaLogs stores data in daily partition subdirs, you can even back up only new days instead of the whole thing.
+🔹 K8s-Native Implementation Plan
+We can still keep this fully Helm/K8s-native by using:
+K8s CronJob (runs a backup script on a schedule).
+InitContainer / kubectl scale to stop VictoriaLogs before backup.
+aws-cli or rclone inside the CronJob to sync /victoria-logs-data to s3://vlogsbcpbucket/….
+A dedicated Backup ServiceAccount with S3 write permissions.
+1. PVC Layout
+VictoriaLogs in K8s will have a PVC mounted to something like:
+/var/lib/victoria-logs
+Inside it:
+/var/lib/victoria-logs/YYYYMMDD/
+These are your per-day partitions.
+2. Backup CronJob
+Here’s a working example (Helm-friendly):
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: victorialogs-backup
+  namespace: victorialogs
+spec:
+  schedule: "0 3 * * *" # 3 AM UTC daily
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: victorialogs-backup
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: amazon/aws-cli:2.15.0
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Stopping VictoriaLogs..."
+              kubectl scale statefulset victorialogs --replicas=0 -n victorialogs
+              
+              echo "Syncing data to S3..."
+              aws s3 sync /var/lib/victoria-logs s3://vlogsbcpbucket/victorialogs-backups/ --exact-timestamps
+              
+              echo "Starting VictoriaLogs..."
+              kubectl scale statefulset victorialogs --replicas=1 -n victorialogs
+            volumeMounts:
+            - name: data
+              mountPath: /var/lib/victoria-logs
+          volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: victorialogs-pvc
+3. IAM Permissions
+Attach an IAM role to the victorialogs-backup ServiceAccount (IRSA) with:
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:s3:::vlogsbcpbucket",
+        "arn:aws:s3:::vlogsbcpbucket/*"
+      ]
+    }
+  ]
+}
+4. Restore Process
+To restore:
+Stop VictoriaLogs StatefulSet.
+aws s3 sync from bucket back to PVC.
+Start StatefulSet.
+Why This Works Better Than Velero Here
+You can control downtime — Velero snapshots would have to freeze the FS, but VictoriaLogs doesn’t handle that safely yet.
+You can incrementally back up only new daily partitions.
+You can run this across clouds since S3-compatible storage works everywhere (MinIO, Wasabi, AWS S3).
+If you want, I can turn this into a single Helm chart that:
+Deploys VictoriaLogs.
+Creates the backup CronJob.
+Handles IRSA + S3 config automatically.
+That way, you could literally helm install victorialogs-with-backup and have EKS backups to vlogsbcpbucket out-of-the-box.
+Do you want me to build that Helm version for you?
