@@ -1,3 +1,5 @@
+<img width="706" height="264" alt="image" src="https://github.com/user-attachments/assets/9c3c8b0e-93e7-4b1a-b10e-9d960435bc28" />
+
 ST1 Backup Hooks - Are They Necessary?
 Short Answer: Usually YES, but depends on your application
 Why Hooks Matter More for ST1 (File-System Backup)
