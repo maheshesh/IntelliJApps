@@ -1,0 +1,129 @@
+# Velero Helm values.yaml for ST1 volumes (file-system backup)
+# Save this as velero-values.yaml
+
+# Velero server configuration
+configuration:
+  # AWS provider configuration
+  provider: aws
+  
+  # Backup storage location
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: backupbucket  # Your S3 bucket name
+      config:
+        region: us-west-2  # Replace with your AWS region
+        
+  # Volume snapshot location (disabled for ST1)
+  volumeSnapshotLocation: []
+  
+  # Default backup settings for file-system backup
+  defaultBackupStorageLocation: default
+  defaultVolumeSnapshotLocations: ""
+  
+  # Enable file-system backup by default
+  defaultVolumesToFsBackup: true
+
+# Node Agent (formerly Restic) - REQUIRED for ST1 file-system backups
+nodeAgent:
+  # Enable node agent for file-system backups
+  enable: true
+  
+  # Resource limits for node agent
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  
+  # Tolerations to run on all nodes
+  tolerations:
+    - operator: Exists
+  
+  # Node selector if needed
+  nodeSelector: {}
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0  # Required for accessing host volumes
+
+# Velero server deployment
+deployNodeAgent: true  # Ensure this is true for file-system backups
+
+# Resource configuration
+resources:
+  requests:
+    cpu: 500m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# RBAC
+rbac:
+  create: true
+  clusterAdministrator: true
+
+# Service Account for EKS Pod Identity
+serviceAccount:
+  server:
+    create: true
+    name: velero
+    annotations:
+      # EKS Pod Identity association
+      eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/VeleroRole"  # Replace with your role ARN
+
+# Credentials configuration - DISABLED for EKS Pod Identity
+credentials:
+  useSecret: false
+  # EKS Pod Identity handles authentication automatically
+
+# Init containers
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.8.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+# Metrics
+metrics:
+  enabled: true
+  scrapeInterval: 30s
+  
+# Backup schedules (optional)
+schedules:
+  victoria-logs-daily:
+    disabled: false
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    template:
+      includedResources:
+        - persistentvolumeclaims
+        - pods
+        - deployments
+        - statefulsets
+        - services
+        - configmaps
+        - secrets
+      includedNamespaces:
+        - default  # Replace with your Victoria Logs namespace
+      labelSelector:
+        matchLabels:
+          velero.io/backup: "enabled"  # Only backup labeled resources
+      snapshotVolumes: false
+      defaultVolumesToFsBackup: true
+      ttl: 720h0m0s  # 30 days retention
+
+# Additional configuration
+kubectl:
+  image:
+    repository: docker.io/bitnami/kubectl
+    tag: 1.28
+
+# Log level
+logLevel: info
+logFormat: text
