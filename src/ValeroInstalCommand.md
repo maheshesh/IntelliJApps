@@ -1,60 +1,84 @@
 #!/bin/bash
 
-# Velero Helm Installation for ST1 Volumes
+# Complete Helm-based deployment for Velero + Victoria Logs backup with EKS Pod Identity
 
 # Variables - UPDATE THESE
 AWS_REGION="us-west-2"
 BUCKET_NAME="backupbucket"
-NAMESPACE="velero"
-VICTORIA_LOGS_NAMESPACE="default"  # Replace with your Victoria Logs namespace
-
-#!/bin/bash
-
-# Velero Helm Installation with EKS Pod Identity
-
-# Variables - UPDATE THESE
-AWS_REGION="us-west-2"
-BUCKET_NAME="backupbucket"
-NAMESPACE="velero"
-VICTORIA_LOGS_NAMESPACE="default"  # Replace with your Victoria Logs namespace
+VICTORIA_LOGS_NAMESPACE="default"
 AWS_ACCOUNT_ID="123456789012"  # Your AWS account ID
+CLUSTER_NAME="your-eks-cluster"
 ROLE_NAME="VeleroRole"
 
-echo "Installing Velero with EKS Pod Identity..."
+echo "=== Step 1: Setup EKS Pod Identity (run once) ==="
+echo "Run the EKS Pod Identity setup script first if not already done"
+echo ""
 
-# Create namespace
-kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+echo "=== Step 2: Install Velero via Helm ==="
 
 # Add Velero Helm repository
 helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
 helm repo update
 
-# Install Velero with EKS Pod Identity
-helm install velero vmware-tanzu/velero \
-  --namespace ${NAMESPACE} \
+# Create velero namespace
+kubectl create namespace velero --dry-run=client -o yaml | kubectl apply -f -
+
+# Install Velero with EKS Pod Identity configuration
+helm upgrade --install velero vmware-tanzu/velero \
+  --namespace velero \
   --values velero-values.yaml \
   --set configuration.backupStorageLocation[0].config.region=${AWS_REGION} \
   --set configuration.backupStorageLocation[0].bucket=${BUCKET_NAME} \
   --set schedules.victoria-logs-daily.template.includedNamespaces[0]=${VICTORIA_LOGS_NAMESPACE} \
   --set serviceAccount.server.annotations."eks\.amazonaws\.com/role-arn"="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}" \
-  --set credentials.useSecret=false
+  --set credentials.useSecret=false \
+  --wait --timeout=10m
 
-echo "Waiting for Velero to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/velero -n ${NAMESPACE}
+echo "=== Step 3: Verify Velero Installation ==="
+kubectl get pods -n velero
+kubectl get backupstoragelocations -n velero
 
-echo "Checking Velero installation..."
-kubectl get pods -n ${NAMESPACE}
+echo "=== Step 4: Verify EKS Pod Identity ==="
+echo "Checking if Velero pod has the correct IAM role..."
+kubectl describe pod -n velero -l app.kubernetes.io/name=velero | grep -E "AWS_ROLE_ARN|AWS_WEB_IDENTITY_TOKEN" || echo "Pod Identity environment variables not found - check association"
 
-echo "Checking node-agent (required for ST1 file-system backups)..."
-kubectl get pods -n ${NAMESPACE} -l name=node-agent
-
-echo "Verifying EKS Pod Identity..."
-kubectl describe pod -n ${NAMESPACE} -l app.kubernetes.io/name=velero | grep -A5 -B5 "AWS_ROLE_ARN\|AWS_WEB_IDENTITY_TOKEN"
+echo "=== Step 5: Label Victoria Logs PVCs ==="
+# Get PVCs in Victoria Logs namespace and label them
+echo "Available PVCs in ${VICTORIA_LOGS_NAMESPACE}:"
+kubectl get pvc -n ${VICTORIA_LOGS_NAMESPACE}
 
 echo ""
-echo "Velero installation complete!"
+echo "Please run these commands to label your specific PVCs:"
+echo "kubectl label pvc <your-pvc-1> -n ${VICTORIA_LOGS_NAMESPACE} velero.io/backup=enabled"
+echo "kubectl label pvc <your-pvc-2> -n ${VICTORIA_LOGS_NAMESPACE} velero.io/backup=enabled"
+echo "kubectl label pvc <your-pvc-3> -n ${VICTORIA_LOGS_NAMESPACE} velero.io/backup=enabled"
+
+echo "=== Step 4: Optional - Deploy Custom Backup Chart ==="
+echo "If you created the custom backup chart, deploy it with:"
+echo "helm upgrade --install victoria-logs-backup ./victoria-logs-backup \\"
+echo "  --set backup.targetNamespace=${VICTORIA_LOGS_NAMESPACE} \\"
+echo "  --set pvcNames[0]=your-pvc-1 \\"
+echo "  --set pvcNames[1]=your-pvc-2 \\"
+echo "  --set pvcNames[2]=your-pvc-3"
+
+echo "=== Step 5: Test Manual Backup ==="
+echo "Create a manual backup to test:"
+echo "velero backup create test-victoria-logs-backup \\"
+echo "  --include-resources persistentvolumeclaims,pods,deployments,statefulsets,services,configmaps,secrets \\"
+echo "  --include-namespaces ${VICTORIA_LOGS_NAMESPACE} \\"
+echo "  --selector 'velero.io/backup=enabled' \\"
+echo "  --snapshot-volumes=false \\"
+echo "  --default-volumes-to-fs-backup=true"
+
+echo ""
+echo "=== Deployment Complete ==="
 echo ""
 echo "Next steps:"
-echo "1. Label your Victoria Logs PVCs: kubectl label pvc <pvc-name> -n ${VICTORIA_LOGS_NAMESPACE} velero.io/backup=enabled"
-echo "2. Test backup: helm test velero -n ${NAMESPACE}"
-echo "3. Create manual backup: velero backup create test-backup --selector velero.io/backup=enabled"
+echo "1. Label your PVCs as shown above"
+echo "2. Test the backup process"
+echo "3. Monitor backup status with: velero backup get"
+echo "4. Check backup details with: velero backup describe <backup-name>"
+
+echo ""
+echo "For restore:"
+echo "velero restore create test-restore --from-backup <backup-name>"
