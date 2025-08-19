@@ -1,0 +1,77 @@
+configuration:
+  backupStorageLocation:
+    - bucket: tempvlogsbcpbucket
+      provider: aws
+      config:
+        region: us-east-1
+  # volumeSnapshotLocation removed - using Restic only
+
+serviceAccount:
+  server:
+    create: true
+    name: velero
+
+# Environment variables for Pod Identity
+extraEnvVars:
+  AWS_DEFAULT_REGION: us-east-1
+
+credentials:
+  useSecret: false
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.10.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+deployNodeAgent: true
+
+# Node Agent configuration for Restic
+nodeAgent:
+  # Ensure Restic is enabled
+  podSecurityContext:
+    runAsUser: 0
+  containerSecurityContext:
+    privileged: true
+  # Resource limits for Restic operations
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Feature flags
+features:
+  # Disable CSI snapshot support since we're using Restic only
+  enableCSISnapshotSupport: false
+  # Enable API group versions
+  enableAPIGroupVersions: true
+
+# Scheduled backups
+schedules:
+  victoria-logs-backup:
+    disabled: false
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    useOwnerReferencesInBackup: false
+    template:
+      includedNamespaces:
+      - victoria-logs
+      includedResources:
+      - persistentvolumeclaims
+      - persistentvolumes
+      - statefulsets
+      - services
+      - configmaps
+      - secrets
+      storageLocation: default
+      ttl: 720h0m0s  # 30 days retention
+      # Force all volumes to use Restic for comprehensive backup
+      defaultVolumesToRestic: true
+      # Ensure Restic handles all PVCs
+      metadata:
+        annotations:
+          backup.velero.io/backup-volumes-excludes: ""
