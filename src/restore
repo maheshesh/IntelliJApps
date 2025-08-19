@@ -1,0 +1,14 @@
+# Now run your restore command
+kubectl create -f - <<EOF
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: victoria-logs-restore-$(date +%s)
+  namespace: velero
+spec:
+  backupName: victoria-logs-pvcs-1755563578
+  includedNamespaces:
+  - victoria-logs
+  restorePVs: true
+  existingResourcePolicy: update
+EOF
